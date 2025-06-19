@@ -76,67 +76,73 @@ var AudioOutput = /** @class */ (function (_super) {
   };
   return AudioOutput;
 })(Audio);
-var audio = new AudioOutput();
-var audioOutput = function (api) {
-  audio.addEventListener("timeupdate", function () {
-    //set current time
-    api.dispatch(ActionCreators.setCurrentTime(Math.floor(audio.currentTime)));
-    // Set duration track
-    api.dispatch(ActionCreators.setDuration(audio.duration));
-    // set time left
-    api.dispatch(
-      ActionCreators.setTimeLeft(
-        Math.floor(
-          isNaN(audio.duration) ? 0 : audio.duration - audio.currentTime
+var audio;
+function getAudio(api) {
+  if (typeof window === "undefined") return undefined;
+  if (!audio) {
+    audio = new AudioOutput();
+    audio.addEventListener("timeupdate", function () {
+      api.dispatch(
+        ActionCreators.setCurrentTime(Math.floor(audio.currentTime))
+      );
+      api.dispatch(ActionCreators.setDuration(audio.duration));
+      api.dispatch(
+        ActionCreators.setTimeLeft(
+          Math.floor(
+            isNaN(audio.duration) ? 0 : audio.duration - audio.currentTime
+          )
         )
-      )
-    );
-  });
-  // set error listener
-  audio.addEventListener("error", function () {
-    api.dispatch(ActionCreators.stop());
-  });
-  // set canplay listener
-  audio.addEventListener("canplay", function () {
-    var mediaState = api.getState().mediaState;
-    if (mediaState === MediaState.PLAYING)
-      audio.play().catch(function () {
-        return api.dispatch(ActionCreators.stop());
-      });
-  });
-  // set "on playback ended" listener
-  audio.addEventListener("ended", function () {
-    var state = api.getState();
-    var currentTrack = state.currentTrack;
-    var isLastTrack = currentTrack === state.playlist.length - 1;
-    switch (state.repeatMode) {
-      case RepeatMode.REPEAT_ALL:
-        if (isLastTrack) api.dispatch(ActionCreators.changeTrack(0));
-        else api.dispatch(ActionCreators.changeTrack(++currentTrack));
-        break;
-      case RepeatMode.REPEAT_ONE:
-        audio.play(); // play again
-        break;
-      case RepeatMode.NORMAL:
-      default:
-        if (isLastTrack) api.dispatch(ActionCreators.stop());
-        else api.dispatch(ActionCreators.changeTrack(++currentTrack));
-    }
-  });
-  // set default volume level
-  audio.volume = api.getState().volume / 100;
+      );
+    });
+    audio.addEventListener("error", function () {
+      api.dispatch(ActionCreators.stop());
+    });
+    audio.addEventListener("canplay", function () {
+      if (api.getState().mediaState === MediaState.PLAYING) {
+        audio.play().catch(function () {
+          return api.dispatch(ActionCreators.stop());
+        });
+      }
+    });
+    audio.addEventListener("ended", function () {
+      var state = api.getState();
+      var currentTrack = state.currentTrack;
+      var isLastTrack = currentTrack === state.playlist.length - 1;
+      switch (state.repeatMode) {
+        case RepeatMode.REPEAT_ALL:
+          api.dispatch(
+            ActionCreators.changeTrack(isLastTrack ? 0 : currentTrack + 1)
+          );
+          break;
+        case RepeatMode.REPEAT_ONE:
+          audio.play();
+          break;
+        case RepeatMode.NORMAL:
+        default:
+          if (isLastTrack) api.dispatch(ActionCreators.stop());
+          else api.dispatch(ActionCreators.changeTrack(currentTrack + 1));
+      }
+    });
+    audio.volume = api.getState().volume / 100;
+  }
+  return audio;
+}
+var audioOutput = function (api) {
   return function (next) {
     return function (action) {
+      var audio = getAudio(api);
+      if (!audio) return next(action); // ignore on server
       var state = api.getState();
       switch (action.type) {
-        case ActionTypes.CHANGE_TRACK:
-          var nexTrack = state.playlist[action.payload.index];
-          audio.setSrc(nexTrack);
+        case ActionTypes.CHANGE_TRACK: {
+          var nextTrack = state.playlist[action.payload.index];
+          audio.setSrc(nextTrack);
           if (state.mediaState === MediaState.PLAYING)
             audio.play().catch(function () {
               return api.dispatch(ActionCreators.stop());
             });
           break;
+        }
         case ActionTypes.PLAY:
           api.dispatch(
             ActionCreators.setCurrentTrackId(
@@ -155,9 +161,10 @@ var audioOutput = function (api) {
           audio.clear();
           break;
         case ActionTypes.SEEK:
-          if (!isNaN(audio.duration) && isFinite(audio.duration))
+          if (!isNaN(audio.duration) && isFinite(audio.duration)) {
             audio.currentTime =
               (action.payload.progress / 100) * audio.duration;
+          }
           break;
         case ActionTypes.CHANGE_VOLUME:
           audio.volume = action.payload.volume / 100;

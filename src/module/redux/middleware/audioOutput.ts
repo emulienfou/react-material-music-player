@@ -1,4 +1,5 @@
 import { Middleware } from "@reduxjs/toolkit";
+import { MiddlewareAPI } from "redux";
 import ActionCreators from "../actionCreators";
 import type { AppAction, RootState } from "../store";
 import { ActionTypes, TrackData, MediaState, RepeatMode } from "../types";
@@ -49,72 +50,80 @@ class AudioOutput extends Audio {
   }
 }
 
-const audio = new AudioOutput();
+let audio: AudioOutput | undefined;
 
-const audioOutput: Middleware<{}, RootState> = (api) => {
-  audio.addEventListener("timeupdate", () => {
-    //set current time
-    api.dispatch(ActionCreators.setCurrentTime(Math.floor(audio.currentTime)));
+function getAudio(api: MiddlewareAPI) {
+  if (typeof window === "undefined") return undefined;
 
-    // Set duration track
-    api.dispatch(ActionCreators.setDuration(audio.duration));
+  if (!audio) {
+    audio = new AudioOutput();
 
-    // set time left
-    api.dispatch(
-      ActionCreators.setTimeLeft(
-        Math.floor(
-          isNaN(audio.duration) ? 0 : audio.duration - audio.currentTime
+    audio.addEventListener("timeupdate", () => {
+      api.dispatch(
+        ActionCreators.setCurrentTime(Math.floor(audio!.currentTime))
+      );
+      api.dispatch(ActionCreators.setDuration(audio!.duration));
+      api.dispatch(
+        ActionCreators.setTimeLeft(
+          Math.floor(
+            isNaN(audio!.duration) ? 0 : audio!.duration - audio!.currentTime
+          )
         )
-      )
-    );
-  });
+      );
+    });
 
-  // set error listener
-  audio.addEventListener("error", () => {
-    api.dispatch(ActionCreators.stop());
-  });
+    audio.addEventListener("error", () => {
+      api.dispatch(ActionCreators.stop());
+    });
 
-  // set canplay listener
-  audio.addEventListener("canplay", () => {
-    let mediaState = api.getState().mediaState;
-    if (mediaState === MediaState.PLAYING)
-      audio.play().catch(() => api.dispatch(ActionCreators.stop()));
-  });
+    audio.addEventListener("canplay", () => {
+      if (api.getState().mediaState === MediaState.PLAYING) {
+        audio!.play().catch(() => api.dispatch(ActionCreators.stop()));
+      }
+    });
 
-  // set "on playback ended" listener
-  audio.addEventListener("ended", () => {
-    let state = api.getState();
-    let currentTrack = state.currentTrack;
-    let isLastTrack = currentTrack === state.playlist.length - 1;
+    audio.addEventListener("ended", () => {
+      const state = api.getState();
+      const currentTrack = state.currentTrack;
+      const isLastTrack = currentTrack === state.playlist.length - 1;
 
-    switch (state.repeatMode) {
-      case RepeatMode.REPEAT_ALL:
-        if (isLastTrack) api.dispatch(ActionCreators.changeTrack(0));
-        else api.dispatch(ActionCreators.changeTrack(++currentTrack));
-        break;
-      case RepeatMode.REPEAT_ONE:
-        audio.play(); // play again
-        break;
-      case RepeatMode.NORMAL:
-      default:
-        if (isLastTrack) api.dispatch(ActionCreators.stop());
-        else api.dispatch(ActionCreators.changeTrack(++currentTrack));
-    }
-  });
+      switch (state.repeatMode) {
+        case RepeatMode.REPEAT_ALL:
+          api.dispatch(
+            ActionCreators.changeTrack(isLastTrack ? 0 : currentTrack + 1)
+          );
+          break;
+        case RepeatMode.REPEAT_ONE:
+          audio!.play();
+          break;
+        case RepeatMode.NORMAL:
+        default:
+          if (isLastTrack) api.dispatch(ActionCreators.stop());
+          else api.dispatch(ActionCreators.changeTrack(currentTrack + 1));
+      }
+    });
 
-  // set default volume level
-  audio.volume = api.getState().volume / 100;
+    audio.volume = api.getState().volume / 100;
+  }
 
-  return (next) => (action: AppAction) => {
-    let state = api.getState();
+  return audio;
+}
+
+const audioOutput: Middleware<{}, RootState> =
+  (api) => (next) => (action: AppAction) => {
+    const audio = getAudio(api);
+    if (!audio) return next(action); // ignore on server
+
+    const state = api.getState();
 
     switch (action.type) {
-      case ActionTypes.CHANGE_TRACK:
-        let nexTrack = state.playlist[action.payload.index];
-        audio.setSrc(nexTrack);
+      case ActionTypes.CHANGE_TRACK: {
+        const nextTrack = state.playlist[action.payload.index];
+        audio.setSrc(nextTrack);
         if (state.mediaState === MediaState.PLAYING)
           audio.play().catch(() => api.dispatch(ActionCreators.stop()));
         break;
+      }
 
       case ActionTypes.PLAY:
         api.dispatch(
@@ -135,8 +144,9 @@ const audioOutput: Middleware<{}, RootState> = (api) => {
         break;
 
       case ActionTypes.SEEK:
-        if (!isNaN(audio.duration) && isFinite(audio.duration))
+        if (!isNaN(audio.duration) && isFinite(audio.duration)) {
           audio.currentTime = (action.payload.progress / 100) * audio.duration;
+        }
         break;
 
       case ActionTypes.CHANGE_VOLUME:
@@ -149,12 +159,12 @@ const audioOutput: Middleware<{}, RootState> = (api) => {
           return; // drop the action
         }
         break;
+
       default:
         break;
     }
 
     return next(action);
   };
-};
 
 export default audioOutput;
