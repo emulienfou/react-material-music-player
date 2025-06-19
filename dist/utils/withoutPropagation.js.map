@@ -1,0 +1,1 @@
+{"version":3,"file":"withoutPropagation.js","sourceRoot":"","sources":["../../src/module/utils/withoutPropagation.ts"],"names":[],"mappings":"AAAA,8BAA8B;AAC9B,IAAM,kBAAkB,GACtB,UAAsB,QAA8B;IAAE,cAAU;SAAV,UAAU,EAAV,qBAAU,EAAV,IAAU;QAAV,6BAAU;;IAChE,OAAA,UAAC,CAAmB;QAClB,CAAC,CAAC,eAAe,EAAE,CAAC;QACpB,QAAQ,eAAI,IAAI,EAAE;IACpB,CAAC;AAHD,CAGC,CAAC;AAEJ,eAAe,kBAAkB,CAAC"}
